@@ -38,6 +38,7 @@
 #define V8_CODEGEN_IA32_ASSEMBLER_IA32_H_
 
 #include <deque>
+#include <memory>
 
 #include "src/codegen/assembler.h"
 #include "src/codegen/ia32/constants-ia32.h"
@@ -292,7 +293,7 @@ class V8_EXPORT_PRIVATE Operand {
   // Only valid if len_ > 4.
   RelocInfo::Mode rmode_ = RelocInfo::NONE;
 
-  // TODO(clemensh): Get rid of this friendship, or make Operand immutable.
+  // TODO(clemensb): Get rid of this friendship, or make Operand immutable.
   friend class Assembler;
 };
 ASSERT_TRIVIALLY_COPYABLE(Operand);
@@ -342,8 +343,8 @@ class Displacement {
  private:
   int data_;
 
-  class TypeField : public BitField<Type, 0, 2> {};
-  class NextField : public BitField<int, 2, 32 - 2> {};
+  using TypeField = BitField<Type, 0, 2>;
+  using NextField = BitField<int, 2, 32 - 2>;
 
   void init(Label* L, Type type);
 };
@@ -849,6 +850,7 @@ class V8_EXPORT_PRIVATE Assembler : public AssemblerBase {
   void movups(XMMRegister dst, Operand src);
   void movups(Operand dst, XMMRegister src);
   void shufps(XMMRegister dst, XMMRegister src, byte imm8);
+  void shufpd(XMMRegister dst, XMMRegister src, byte imm8);
 
   void maxss(XMMRegister dst, XMMRegister src) { maxss(dst, Operand(src)); }
   void maxss(XMMRegister dst, Operand src);
@@ -874,6 +876,8 @@ class V8_EXPORT_PRIVATE Assembler : public AssemblerBase {
   void divps(XMMRegister dst, XMMRegister src) { divps(dst, Operand(src)); }
   void rcpps(XMMRegister dst, Operand src);
   void rcpps(XMMRegister dst, XMMRegister src) { rcpps(dst, Operand(src)); }
+  void sqrtps(XMMRegister dst, Operand src);
+  void sqrtps(XMMRegister dst, XMMRegister src) { sqrtps(dst, Operand(src)); }
   void rsqrtps(XMMRegister dst, Operand src);
   void rsqrtps(XMMRegister dst, XMMRegister src) { rsqrtps(dst, Operand(src)); }
   void haddps(XMMRegister dst, Operand src);
@@ -1298,6 +1302,10 @@ class V8_EXPORT_PRIVATE Assembler : public AssemblerBase {
   void vrcpps(XMMRegister dst, Operand src) {
     vinstr(0x53, dst, xmm0, src, kNone, k0F, kWIG);
   }
+  void vsqrtps(XMMRegister dst, XMMRegister src) { vsqrtps(dst, Operand(src)); }
+  void vsqrtps(XMMRegister dst, Operand src) {
+    vinstr(0x51, dst, xmm0, src, kNone, k0F, kWIG);
+  }
   void vrsqrtps(XMMRegister dst, XMMRegister src) {
     vrsqrtps(dst, Operand(src));
   }
@@ -1312,12 +1320,18 @@ class V8_EXPORT_PRIVATE Assembler : public AssemblerBase {
   }
   void vmovaps(XMMRegister dst, XMMRegister src) { vmovaps(dst, Operand(src)); }
   void vmovaps(XMMRegister dst, Operand src) { vps(0x28, dst, xmm0, src); }
+  void vmovapd(XMMRegister dst, XMMRegister src) { vmovapd(dst, Operand(src)); }
+  void vmovapd(XMMRegister dst, Operand src) { vpd(0x28, dst, xmm0, src); }
   void vmovups(XMMRegister dst, XMMRegister src) { vmovups(dst, Operand(src)); }
   void vmovups(XMMRegister dst, Operand src) { vps(0x10, dst, xmm0, src); }
   void vshufps(XMMRegister dst, XMMRegister src1, XMMRegister src2, byte imm8) {
     vshufps(dst, src1, Operand(src2), imm8);
   }
   void vshufps(XMMRegister dst, XMMRegister src1, Operand src2, byte imm8);
+  void vshufpd(XMMRegister dst, XMMRegister src1, XMMRegister src2, byte imm8) {
+    vshufpd(dst, src1, Operand(src2), imm8);
+  }
+  void vshufpd(XMMRegister dst, XMMRegister src1, Operand src2, byte imm8);
 
   void vpsllw(XMMRegister dst, XMMRegister src, uint8_t imm8);
   void vpslld(XMMRegister dst, XMMRegister src, uint8_t imm8);

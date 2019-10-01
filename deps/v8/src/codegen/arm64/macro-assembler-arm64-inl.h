@@ -93,6 +93,15 @@ void TurboAssembler::Ccmp(const Register& rn, const Operand& operand,
   }
 }
 
+void TurboAssembler::CcmpTagged(const Register& rn, const Operand& operand,
+                                StatusFlags nzcv, Condition cond) {
+  if (COMPRESS_POINTERS_BOOL) {
+    Ccmp(rn.W(), operand.ToW(), nzcv, cond);
+  } else {
+    Ccmp(rn, operand, nzcv, cond);
+  }
+}
+
 void MacroAssembler::Ccmn(const Register& rn, const Operand& operand,
                           StatusFlags nzcv, Condition cond) {
   DCHECK(allow_macro_instructions());
@@ -155,6 +164,14 @@ void TurboAssembler::Cmn(const Register& rn, const Operand& operand) {
 void TurboAssembler::Cmp(const Register& rn, const Operand& operand) {
   DCHECK(allow_macro_instructions());
   Subs(AppropriateZeroRegFor(rn), rn, operand);
+}
+
+void TurboAssembler::CmpTagged(const Register& rn, const Operand& operand) {
+  if (COMPRESS_POINTERS_BOOL) {
+    Cmp(rn.W(), operand.ToW());
+  } else {
+    Cmp(rn, operand);
+  }
 }
 
 void TurboAssembler::Neg(const Register& rd, const Operand& operand) {
@@ -982,7 +999,12 @@ void TurboAssembler::SmiUntag(Register dst, Register src) {
     AssertSmi(src);
   }
   DCHECK(SmiValuesAre32Bits() || SmiValuesAre31Bits());
-  Asr(dst, src, kSmiShift);
+  if (COMPRESS_POINTERS_BOOL) {
+    Asr(dst.W(), src.W(), kSmiShift);
+    Sxtw(dst, dst);
+  } else {
+    Asr(dst, src, kSmiShift);
+  }
 }
 
 void TurboAssembler::SmiUntag(Register dst, const MemOperand& src) {
@@ -1002,11 +1024,15 @@ void TurboAssembler::SmiUntag(Register dst, const MemOperand& src) {
     }
   } else {
     DCHECK(SmiValuesAre31Bits());
-#ifdef V8_COMPRESS_POINTERS
-    Ldrsw(dst, src);
-#else
-    Ldr(dst, src);
-#endif
+    if (COMPRESS_POINTERS_BOOL) {
+      if (kUseSmiCorruptingPtrDecompression) {
+        Ldr(dst.W(), src);
+      } else {
+        Ldrsw(dst, src);
+      }
+    } else {
+      Ldr(dst, src);
+    }
     SmiUntag(dst);
   }
 }
@@ -1083,7 +1109,7 @@ void TurboAssembler::Claim(const Register& count, uint64_t unit_size) {
   if (unit_size == 0) return;
   DCHECK(base::bits::IsPowerOfTwo(unit_size));
 
-  const int shift = CountTrailingZeros(unit_size, kXRegSizeInBits);
+  const int shift = base::bits::CountTrailingZeros(unit_size);
   const Operand size(count, LSL, shift);
 
   if (size.IsZero()) {
@@ -1136,7 +1162,7 @@ void TurboAssembler::Drop(const Register& count, uint64_t unit_size) {
   if (unit_size == 0) return;
   DCHECK(base::bits::IsPowerOfTwo(unit_size));
 
-  const int shift = CountTrailingZeros(unit_size, kXRegSizeInBits);
+  const int shift = base::bits::CountTrailingZeros(unit_size);
   const Operand size(count, LSL, shift);
 
   if (size.IsZero()) {
@@ -1187,6 +1213,16 @@ void MacroAssembler::CompareAndBranch(const Register& lhs, const Operand& rhs,
   } else {
     Cmp(lhs, rhs);
     B(cond, label);
+  }
+}
+
+void MacroAssembler::CompareTaggedAndBranch(const Register& lhs,
+                                            const Operand& rhs, Condition cond,
+                                            Label* label) {
+  if (COMPRESS_POINTERS_BOOL) {
+    CompareAndBranch(lhs.W(), rhs.ToW(), cond, label);
+  } else {
+    CompareAndBranch(lhs, rhs, cond, label);
   }
 }
 

@@ -28,7 +28,7 @@ namespace v8 {
 namespace internal {
 
 OBJECT_CONSTRUCTORS_IMPL(WasmExceptionObject, JSObject)
-OBJECT_CONSTRUCTORS_IMPL(WasmExceptionTag, Struct)
+TQ_OBJECT_CONSTRUCTORS_IMPL(WasmExceptionTag)
 OBJECT_CONSTRUCTORS_IMPL(WasmExportedFunctionData, Struct)
 OBJECT_CONSTRUCTORS_IMPL(WasmDebugInfo, Struct)
 OBJECT_CONSTRUCTORS_IMPL(WasmGlobalObject, JSObject)
@@ -42,7 +42,6 @@ NEVER_READ_ONLY_SPACE_IMPL(WasmDebugInfo)
 
 CAST_ACCESSOR(WasmDebugInfo)
 CAST_ACCESSOR(WasmExceptionObject)
-CAST_ACCESSOR(WasmExceptionTag)
 CAST_ACCESSOR(WasmExportedFunctionData)
 CAST_ACCESSOR(WasmGlobalObject)
 CAST_ACCESSOR(WasmInstanceObject)
@@ -103,7 +102,7 @@ WasmModuleObject::shared_native_module() const {
   return managed_native_module().get();
 }
 const wasm::WasmModule* WasmModuleObject::module() const {
-  // TODO(clemensh): Remove this helper (inline in callers).
+  // TODO(clemensb): Remove this helper (inline in callers).
   return native_module()->module();
 }
 void WasmModuleObject::reset_breakpoint_infos() {
@@ -261,9 +260,8 @@ OPTIONAL_ACCESSORS(WasmInstanceObject, managed_native_allocations, Foreign,
                    kManagedNativeAllocationsOffset)
 OPTIONAL_ACCESSORS(WasmInstanceObject, exceptions_table, FixedArray,
                    kExceptionsTableOffset)
-ACCESSORS(WasmInstanceObject, centry_stub, Code, kCEntryStubOffset)
-OPTIONAL_ACCESSORS(WasmInstanceObject, wasm_exported_functions, FixedArray,
-                   kWasmExportedFunctionsOffset)
+OPTIONAL_ACCESSORS(WasmInstanceObject, wasm_external_functions, FixedArray,
+                   kWasmExternalFunctionsOffset)
 
 void WasmInstanceObject::clear_padding() {
   if (FIELD_SIZE(kOptionalPaddingOffset) != 0) {
@@ -311,6 +309,10 @@ ACCESSORS(WasmExceptionObject, serialized_signature, PodArray<wasm::ValueType>,
           kSerializedSignatureOffset)
 ACCESSORS(WasmExceptionObject, exception_tag, HeapObject, kExceptionTagOffset)
 
+// WasmExceptionPackage
+OBJECT_CONSTRUCTORS_IMPL(WasmExceptionPackage, JSReceiver)
+CAST_ACCESSOR(WasmExceptionPackage)
+
 // WasmExportedFunction
 WasmExportedFunction::WasmExportedFunction(Address ptr) : JSFunction(ptr) {
   SLOW_DCHECK(IsWasmExportedFunction(*this));
@@ -325,7 +327,7 @@ SMI_ACCESSORS(WasmExportedFunctionData, jump_table_offset,
               kJumpTableOffsetOffset)
 SMI_ACCESSORS(WasmExportedFunctionData, function_index, kFunctionIndexOffset)
 ACCESSORS(WasmExportedFunctionData, c_wrapper_code, Object, kCWrapperCodeOffset)
-ACCESSORS(WasmExportedFunctionData, wasm_call_target, Smi,
+ACCESSORS(WasmExportedFunctionData, wasm_call_target, Object,
           kWasmCallTargetOffset)
 SMI_ACCESSORS(WasmExportedFunctionData, packed_args_size, kPackedArgsSizeOffset)
 
@@ -358,11 +360,16 @@ OBJECT_CONSTRUCTORS_IMPL(WasmCapiFunctionData, Struct)
 CAST_ACCESSOR(WasmCapiFunctionData)
 PRIMITIVE_ACCESSORS(WasmCapiFunctionData, call_target, Address,
                     kCallTargetOffset)
-PRIMITIVE_ACCESSORS(WasmCapiFunctionData, embedder_data, void*,
-                    kEmbedderDataOffset)
+ACCESSORS(WasmCapiFunctionData, embedder_data, Foreign, kEmbedderDataOffset)
 ACCESSORS(WasmCapiFunctionData, wrapper_code, Code, kWrapperCodeOffset)
 ACCESSORS(WasmCapiFunctionData, serialized_signature, PodArray<wasm::ValueType>,
           kSerializedSignatureOffset)
+
+// WasmExternalFunction
+WasmExternalFunction::WasmExternalFunction(Address ptr) : JSFunction(ptr) {
+  SLOW_DCHECK(IsWasmExternalFunction(*this));
+}
+CAST_ACCESSOR(WasmExternalFunction)
 
 // WasmIndirectFunctionTable
 OBJECT_CONSTRUCTORS_IMPL(WasmIndirectFunctionTable, Struct)
@@ -379,6 +386,8 @@ ACCESSORS(WasmIndirectFunctionTable, refs, FixedArray, kRefsOffset)
 // WasmDebugInfo
 ACCESSORS(WasmDebugInfo, wasm_instance, WasmInstanceObject, kInstanceOffset)
 ACCESSORS(WasmDebugInfo, interpreter_handle, Object, kInterpreterHandleOffset)
+ACCESSORS(WasmDebugInfo, interpreter_reference_stack, Cell,
+          kInterpreterReferenceStackOffset)
 OPTIONAL_ACCESSORS(WasmDebugInfo, locals_names, FixedArray, kLocalsNamesOffset)
 OPTIONAL_ACCESSORS(WasmDebugInfo, c_wasm_entries, FixedArray,
                    kCWasmEntriesOffset)
@@ -399,7 +408,7 @@ wasm::ValueType WasmTableObject::type() {
 bool WasmMemoryObject::has_maximum_pages() { return maximum_pages() >= 0; }
 
 // WasmExceptionTag
-SMI_ACCESSORS(WasmExceptionTag, index, kIndexOffset)
+TQ_SMI_ACCESSORS(WasmExceptionTag, index)
 
 // AsmWasmData
 ACCESSORS(AsmWasmData, managed_native_module, Managed<wasm::NativeModule>,

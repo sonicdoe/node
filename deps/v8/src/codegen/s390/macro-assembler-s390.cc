@@ -193,6 +193,13 @@ void TurboAssembler::Jump(Handle<Code> code, RelocInfo::Mode rmode,
   jump(code, RelocInfo::RELATIVE_CODE_TARGET, cond);
 }
 
+void TurboAssembler::Jump(const ExternalReference& reference) {
+  UseScratchRegisterScope temps(this);
+  Register scratch = temps.Acquire();
+  Move(scratch, reference);
+  Jump(scratch);
+}
+
 void TurboAssembler::Call(Register target) {
   // Branch to target via indirect branch
   basr(r14, target);
@@ -576,8 +583,9 @@ void MacroAssembler::RecordWrite(Register object, Register address,
     Check(eq, AbortReason::kWrongAddressOrValuePassedToRecordWrite);
   }
 
-  if (remembered_set_action == OMIT_REMEMBERED_SET &&
-      !FLAG_incremental_marking) {
+  if ((remembered_set_action == OMIT_REMEMBERED_SET &&
+       !FLAG_incremental_marking) ||
+      FLAG_disable_write_barriers) {
     return;
   }
   // First, check if a write barrier is even needed. The tests below
@@ -1334,12 +1342,11 @@ void MacroAssembler::CheckDebugHook(Register fun, Register new_target,
   {
     // Load receiver to pass it later to DebugOnFunctionCall hook.
     if (actual.is_reg()) {
-      LoadRR(r6, actual.reg());
+      ShiftLeftP(r6, actual.reg(), Operand(kPointerSizeLog2));
+      LoadP(r6, MemOperand(sp, r6));
     } else {
-      mov(r6, Operand(actual.immediate()));
+      LoadP(r6, MemOperand(sp, actual.immediate() << kPointerSizeLog2), ip);
     }
-    ShiftLeftP(r6, r6, Operand(kPointerSizeLog2));
-    LoadP(r6, MemOperand(sp, r6));
     FrameScope frame(this,
                      has_frame() ? StackFrame::NONE : StackFrame::INTERNAL);
     if (expected.is_reg()) {
@@ -3407,12 +3414,12 @@ void TurboAssembler::LoadIntLiteral(Register dst, int value) {
 
 void TurboAssembler::LoadSmiLiteral(Register dst, Smi smi) {
   intptr_t value = static_cast<intptr_t>(smi.ptr());
-#if V8_TARGET_ARCH_S390X
+#if defined(V8_COMPRESS_POINTERS) || defined(V8_31BIT_SMIS_ON_64BIT_ARCH)
+  llilf(dst, Operand(value));
+#else
   DCHECK_EQ(value & 0xFFFFFFFF, 0);
   // The smi value is loaded in upper 32-bits.  Lower 32-bit are zeros.
   llihf(dst, Operand(value >> 32));
-#else
-  llilf(dst, Operand(value));
 #endif
 }
 
@@ -3448,16 +3455,16 @@ void TurboAssembler::LoadFloat32Literal(DoubleRegister result, float value,
 }
 
 void TurboAssembler::CmpSmiLiteral(Register src1, Smi smi, Register scratch) {
-#if V8_TARGET_ARCH_S390X
+#if defined(V8_COMPRESS_POINTERS) || defined(V8_31BIT_SMIS_ON_64BIT_ARCH)
+  // CFI takes 32-bit immediate.
+  cfi(src1, Operand(smi));
+#else
   if (CpuFeatures::IsSupported(DISTINCT_OPS)) {
     cih(src1, Operand(static_cast<intptr_t>(smi.ptr()) >> 32));
   } else {
     LoadSmiLiteral(scratch, smi);
     cgr(src1, scratch);
   }
-#else
-  // CFI takes 32-bit immediate.
-  cfi(src1, Operand(smi));
 #endif
 }
 
@@ -4334,14 +4341,19 @@ void TurboAssembler::JumpIfLessThan(Register x, int32_t y, Label* dest) {
 
 void TurboAssembler::LoadEntryFromBuiltinIndex(Register builtin_index) {
   STATIC_ASSERT(kSystemPointerSize == 8);
-  STATIC_ASSERT(kSmiShiftSize == 31);
   STATIC_ASSERT(kSmiTagSize == 1);
   STATIC_ASSERT(kSmiTag == 0);
 
   // The builtin_index register contains the builtin index as a Smi.
   // Untagging is folded into the indexing operand below.
+#if defined(V8_COMPRESS_POINTERS) || defined(V8_31BIT_SMIS_ON_64BIT_ARCH)
+  STATIC_ASSERT(kSmiShiftSize == 0);
+  ShiftLeftP(builtin_index, builtin_index,
+             Operand(kSystemPointerSizeLog2 - kSmiShift));
+#else
   ShiftRightArithP(builtin_index, builtin_index,
                    Operand(kSmiShift - kSystemPointerSizeLog2));
+#endif
   AddP(builtin_index, builtin_index,
        Operand(IsolateData::builtin_entry_table_offset()));
   LoadP(builtin_index, MemOperand(kRootRegister, builtin_index));

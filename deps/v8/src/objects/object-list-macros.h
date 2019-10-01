@@ -37,10 +37,11 @@ class LookupIterator;
 class FieldType;
 class Module;
 class SourceTextModuleInfoEntry;
-class MutableHeapNumber;
+class HeapNumber;
 class ObjectHashTable;
 class ObjectTemplateInfo;
 class ObjectVisitor;
+class OSROptimizedCodeCache;
 class PreparseData;
 class PropertyArray;
 class PropertyCell;
@@ -158,6 +159,7 @@ class ZoneForwardList;
   V(JSReceiver)                                \
   V(JSRegExp)                                  \
   V(JSRegExpResult)                            \
+  V(JSRegExpResultIndices)                     \
   V(JSRegExpStringIterator)                    \
   V(JSSet)                                     \
   V(JSSetIterator)                             \
@@ -173,7 +175,6 @@ class ZoneForwardList;
   V(MapCache)                                  \
   V(Module)                                    \
   V(Microtask)                                 \
-  V(MutableHeapNumber)                         \
   V(Name)                                      \
   V(NameDictionary)                            \
   V(NativeContext)                             \
@@ -186,6 +187,7 @@ class ZoneForwardList;
   V(OrderedHashMap)                            \
   V(OrderedHashSet)                            \
   V(OrderedNameDictionary)                     \
+  V(OSROptimizedCodeCache)                     \
   V(PreparseData)                              \
   V(PromiseReactionJobTask)                    \
   V(PropertyArray)                             \
@@ -226,6 +228,7 @@ class ZoneForwardList;
   V(Undetectable)                              \
   V(UniqueName)                                \
   V(WasmExceptionObject)                       \
+  V(WasmExceptionPackage)                      \
   V(WasmGlobalObject)                          \
   V(WasmInstanceObject)                        \
   V(WasmMemoryObject)                          \

@@ -84,6 +84,9 @@ void RegExpParser::Advance() {
       ReportError(CStrVector(
           MessageFormatter::TemplateString(MessageTemplate::kStackOverflow)));
     } else if (zone()->excess_allocation()) {
+      if (FLAG_correctness_fuzzer_suppressions) {
+        FATAL("Aborting on excess zone allocation");
+      }
       ReportError(CStrVector("Regular expression too large"));
     } else {
       current_ = ReadNext<true>();
@@ -692,7 +695,7 @@ RegExpParser::RegExpParserState* RegExpParser::ParseOpenParenthesis(
     }
   }
   if (subexpr_type == CAPTURE) {
-    if (captures_started_ >= kMaxCaptures) {
+    if (captures_started_ >= JSRegExp::kMaxCaptures) {
       ReportError(CStrVector("Too many captures"));
       return nullptr;
     }
@@ -800,7 +803,7 @@ bool RegExpParser::ParseBackReferenceIndex(int* index_out) {
     uc32 c = current();
     if (IsDecimalDigit(c)) {
       value = 10 * value + (c - '0');
-      if (value > kMaxCaptures) {
+      if (value > JSRegExp::kMaxCaptures) {
         Reset(start);
         return false;
       }

@@ -272,8 +272,8 @@ void Assembler::AllocateAndInstallRequestedHeapObjects(Isolate* isolate) {
     Handle<HeapObject> object;
     switch (request.kind()) {
       case HeapObjectRequest::kHeapNumber:
-        object = isolate->factory()->NewHeapNumber(request.heap_number(),
-                                                   AllocationType::kOld);
+        object = isolate->factory()->NewHeapNumber<AllocationType::kOld>(
+            request.heap_number());
         break;
       case HeapObjectRequest::kStringConstant: {
         const StringConstantBase* str = request.string();
@@ -2234,6 +2234,13 @@ void Assembler::rcpps(XMMRegister dst, Operand src) {
   emit_sse_operand(dst, src);
 }
 
+void Assembler::sqrtps(XMMRegister dst, Operand src) {
+  EnsureSpace ensure_space(this);
+  EMIT(0x0F);
+  EMIT(0x51);
+  emit_sse_operand(dst, src);
+}
+
 void Assembler::rsqrtps(XMMRegister dst, Operand src) {
   EnsureSpace ensure_space(this);
   EMIT(0x0F);
@@ -2392,6 +2399,16 @@ void Assembler::movups(Operand dst, XMMRegister src) {
 void Assembler::shufps(XMMRegister dst, XMMRegister src, byte imm8) {
   DCHECK(is_uint8(imm8));
   EnsureSpace ensure_space(this);
+  EMIT(0x0F);
+  EMIT(0xC6);
+  emit_sse_operand(dst, src);
+  EMIT(imm8);
+}
+
+void Assembler::shufpd(XMMRegister dst, XMMRegister src, byte imm8) {
+  DCHECK(is_uint8(imm8));
+  EnsureSpace ensure_space(this);
+  EMIT(0x66);
   EMIT(0x0F);
   EMIT(0xC6);
   emit_sse_operand(dst, src);
@@ -2811,6 +2828,13 @@ void Assembler::vpd(byte op, XMMRegister dst, XMMRegister src1, Operand src2) {
   vinstr(op, dst, src1, src2, k66, k0F, kWIG);
 }
 
+void Assembler::vshufpd(XMMRegister dst, XMMRegister src1, Operand src2,
+                        byte imm8) {
+  DCHECK(is_uint8(imm8));
+  vpd(0xC6, dst, src1, src2);
+  EMIT(imm8);
+}
+
 void Assembler::vcmpps(XMMRegister dst, XMMRegister src1, Operand src2,
                        uint8_t cmp) {
   vps(0xC2, dst, src1, src2);
@@ -3158,11 +3182,10 @@ void Assembler::emit_operand(int code, Operand adr) {
   DCHECK_GT(length, 0);
 
   // Emit updated ModRM byte containing the given register.
-  pc_[0] = (adr.buf_[0] & ~0x38) | (code << 3);
+  EMIT((adr.buf_[0] & ~0x38) | (code << 3));
 
   // Emit the rest of the encoded operand.
-  for (unsigned i = 1; i < length; i++) pc_[i] = adr.buf_[i];
-  pc_ += length;
+  for (unsigned i = 1; i < length; i++) EMIT(adr.buf_[i]);
 
   // Emit relocation information if necessary.
   if (length >= sizeof(int32_t) && !RelocInfo::IsNone(adr.rmode_)) {

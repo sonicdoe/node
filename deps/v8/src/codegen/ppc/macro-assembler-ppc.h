@@ -400,6 +400,7 @@ class V8_EXPORT_PRIVATE TurboAssembler : public TurboAssemblerBase {
             CRegister cr = cr7);
   void Jump(Handle<Code> code, RelocInfo::Mode rmode, Condition cond = al,
             CRegister cr = cr7);
+  void Jump(const ExternalReference& reference) override;
   void Jump(intptr_t target, RelocInfo::Mode rmode, Condition cond = al,
             CRegister cr = cr7);
   void Call(Register target);
@@ -875,12 +876,12 @@ class V8_EXPORT_PRIVATE MacroAssembler : public TurboAssembler {
   }
 
   void SmiToPtrArrayOffset(Register dst, Register src) {
-#if V8_TARGET_ARCH_PPC64
-    STATIC_ASSERT(kSmiTag == 0 && kSmiShift > kPointerSizeLog2);
-    ShiftRightArithImm(dst, src, kSmiShift - kPointerSizeLog2);
-#else
+#if defined(V8_COMPRESS_POINTERS) || defined(V8_31BIT_SMIS_ON_64BIT_ARCH)
     STATIC_ASSERT(kSmiTag == 0 && kSmiShift < kPointerSizeLog2);
     ShiftLeftImm(dst, src, Operand(kPointerSizeLog2 - kSmiShift));
+#else
+    STATIC_ASSERT(kSmiTag == 0 && kSmiShift > kPointerSizeLog2);
+    ShiftRightArithImm(dst, src, kSmiShift - kPointerSizeLog2);
 #endif
   }
 
@@ -894,7 +895,7 @@ class V8_EXPORT_PRIVATE MacroAssembler : public TurboAssembler {
   void AssertNotSmi(Register object);
   void AssertSmi(Register object);
 
-#if V8_TARGET_ARCH_PPC64
+#if !defined(V8_COMPRESS_POINTERS) && !defined(V8_31BIT_SMIS_ON_64BIT_ARCH)
   // Ensure it is permissible to read/write int value directly from
   // upper half of the smi.
   STATIC_ASSERT(kSmiTag == 0);

@@ -90,12 +90,24 @@ static void GenerateTailCallToReturnedCode(MacroAssembler* masm,
 
 namespace {
 
+void LoadRealStackLimit(MacroAssembler* masm, Register destination) {
+  DCHECK(masm->root_array_available());
+  Isolate* isolate = masm->isolate();
+  ExternalReference limit = ExternalReference::address_of_real_jslimit(isolate);
+  DCHECK(TurboAssembler::IsAddressableThroughRootRegister(isolate, limit));
+
+  intptr_t offset =
+      TurboAssembler::RootRegisterOffsetForExternalReference(isolate, limit);
+  CHECK(is_int32(offset));
+  __ ldr(destination, MemOperand(kRootRegister, offset));
+}
+
 void Generate_StackOverflowCheck(MacroAssembler* masm, Register num_args,
                                  Register scratch, Label* stack_overflow) {
   // Check the stack for overflow. We are not trying to catch
   // interruptions (e.g. debug break and preemption) here, so the "real stack
   // limit" is checked.
-  __ LoadRoot(scratch, RootIndex::kRealStackLimit);
+  LoadRealStackLimit(masm, scratch);
   // Make scratch the space we have left. The stack might already be overflowed
   // here which will cause scratch to become negative.
   __ sub(scratch, sp, scratch);
@@ -428,7 +440,8 @@ void Builtins::Generate_ResumeGeneratorTrampoline(MacroAssembler* masm) {
   // Check the stack for overflow. We are not trying to catch interruptions
   // (i.e. debug break and preemption) here, so check the "real stack limit".
   Label stack_overflow;
-  __ CompareRoot(sp, RootIndex::kRealStackLimit);
+  LoadRealStackLimit(masm, scratch);
+  __ cmp(sp, scratch);
   __ b(lo, &stack_overflow);
 
   // Push receiver.
@@ -986,7 +999,7 @@ static void AdvanceBytecodeOffsetOrReturn(MacroAssembler* masm,
           ExternalReference::bytecode_size_table_address());
 
   // Check if the bytecode is a Wide or ExtraWide prefix bytecode.
-  Label process_bytecode, extra_wide;
+  Label process_bytecode;
   STATIC_ASSERT(0 == static_cast<int>(interpreter::Bytecode::kWide));
   STATIC_ASSERT(1 == static_cast<int>(interpreter::Bytecode::kExtraWide));
   STATIC_ASSERT(2 == static_cast<int>(interpreter::Bytecode::kDebugBreakWide));
@@ -995,21 +1008,18 @@ static void AdvanceBytecodeOffsetOrReturn(MacroAssembler* masm,
   __ cmp(bytecode, Operand(0x3));
   __ b(hi, &process_bytecode);
   __ tst(bytecode, Operand(0x1));
-  __ b(ne, &extra_wide);
-
-  // Load the next bytecode and update table to the wide scaled table.
+  // Load the next bytecode.
   __ add(bytecode_offset, bytecode_offset, Operand(1));
   __ ldrb(bytecode, MemOperand(bytecode_array, bytecode_offset));
+
+  // Update table to the wide scaled table.
   __ add(bytecode_size_table, bytecode_size_table,
          Operand(kIntSize * interpreter::Bytecodes::kBytecodeCount));
-  __ jmp(&process_bytecode);
-
-  __ bind(&extra_wide);
-  // Load the next bytecode and update table to the extra wide scaled table.
-  __ add(bytecode_offset, bytecode_offset, Operand(1));
-  __ ldrb(bytecode, MemOperand(bytecode_array, bytecode_offset));
+  // Conditionally update table to the extra wide scaled table. We are taking
+  // advantage of the fact that the extra wide follows the wide one.
   __ add(bytecode_size_table, bytecode_size_table,
-         Operand(2 * kIntSize * interpreter::Bytecodes::kBytecodeCount));
+         Operand(kIntSize * interpreter::Bytecodes::kBytecodeCount), LeaveCC,
+         ne);
 
   __ bind(&process_bytecode);
 
@@ -1108,28 +1118,26 @@ void Builtins::Generate_InterpreterEntryTrampoline(MacroAssembler* masm) {
   __ Push(kInterpreterBytecodeArrayRegister, r0);
 
   // Allocate the local and temporary register file on the stack.
+  Label stack_overflow;
   {
     // Load frame size from the BytecodeArray object.
     __ ldr(r4, FieldMemOperand(kInterpreterBytecodeArrayRegister,
                                BytecodeArray::kFrameSizeOffset));
 
     // Do a stack check to ensure we don't go over the limit.
-    Label ok;
     __ sub(r9, sp, Operand(r4));
-    __ LoadRoot(r2, RootIndex::kRealStackLimit);
+    LoadRealStackLimit(masm, r2);
     __ cmp(r9, Operand(r2));
-    __ b(hs, &ok);
-    __ CallRuntime(Runtime::kThrowStackOverflow);
-    __ bind(&ok);
+    __ b(lo, &stack_overflow);
 
     // If ok, push undefined as the initial value for all register file entries.
     Label loop_header;
     Label loop_check;
-    __ LoadRoot(r9, RootIndex::kUndefinedValue);
+    __ LoadRoot(kInterpreterAccumulatorRegister, RootIndex::kUndefinedValue);
     __ b(&loop_check, al);
     __ bind(&loop_header);
     // TODO(rmcilroy): Consider doing more than one push per loop iteration.
-    __ push(r9);
+    __ push(kInterpreterAccumulatorRegister);
     // Continue loop if not done.
     __ bind(&loop_check);
     __ sub(r4, r4, Operand(kPointerSize), SetCC);
@@ -1144,8 +1152,7 @@ void Builtins::Generate_InterpreterEntryTrampoline(MacroAssembler* masm) {
   __ cmp(r9, Operand::Zero());
   __ str(r3, MemOperand(fp, r9, LSL, kPointerSizeLog2), ne);
 
-  // Load accumulator with undefined.
-  __ LoadRoot(kInterpreterAccumulatorRegister, RootIndex::kUndefinedValue);
+  // The accumulator is already loaded with undefined.
 
   // Load the dispatch table into a register and dispatch to the bytecode
   // handler at the current bytecode offset.
@@ -1188,6 +1195,10 @@ void Builtins::Generate_InterpreterEntryTrampoline(MacroAssembler* masm) {
 
   __ bind(&compile_lazy);
   GenerateTailCallToReturnedCode(masm, Runtime::kCompileLazy);
+  __ bkpt(0);  // Should not return.
+
+  __ bind(&stack_overflow);
+  __ CallRuntime(Runtime::kThrowStackOverflow);
   __ bkpt(0);  // Should not return.
 }
 
@@ -2089,7 +2100,7 @@ void Generate_PushBoundArguments(MacroAssembler* masm) {
 
         // Compute the space we have left. The stack might already be overflowed
         // here which will cause remaining_stack_size to become negative.
-        __ LoadRoot(remaining_stack_size, RootIndex::kRealStackLimit);
+        LoadRealStackLimit(masm, remaining_stack_size);
         __ sub(remaining_stack_size, sp, remaining_stack_size);
 
         // Check if the arguments will overflow the stack.
@@ -2169,7 +2180,7 @@ void Builtins::Generate_Call(MacroAssembler* masm, ConvertReceiverMode mode) {
   //  -- r1 : the target to call (can be any Object).
   // -----------------------------------
 
-  Label non_callable, non_function, non_smi;
+  Label non_callable, non_smi;
   __ JumpIfSmi(r1, &non_callable);
   __ bind(&non_smi);
   __ CompareObjectType(r1, r4, r5, JS_FUNCTION_TYPE);
@@ -2186,12 +2197,10 @@ void Builtins::Generate_Call(MacroAssembler* masm, ConvertReceiverMode mode) {
 
   // Check if target is a proxy and call CallProxy external builtin
   __ cmp(r5, Operand(JS_PROXY_TYPE));
-  __ b(ne, &non_function);
-  __ Jump(BUILTIN_CODE(masm->isolate(), CallProxy), RelocInfo::CODE_TARGET);
+  __ Jump(BUILTIN_CODE(masm->isolate(), CallProxy), RelocInfo::CODE_TARGET, eq);
 
   // 2. Call to something else, which might have a [[Call]] internal method (if
   // not we raise an exception).
-  __ bind(&non_function);
   // Overwrite the original receiver the (original) target.
   __ str(r1, MemOperand(sp, r0, LSL, kPointerSizeLog2));
   // Let the "call_as_function_delegate" take care of the rest.
@@ -2517,7 +2526,10 @@ void Builtins::Generate_WasmCompileLazy(MacroAssembler* masm) {
     __ push(kWasmCompileLazyFuncIndexRegister);
     // Load the correct CEntry builtin from the instance object.
     __ ldr(r2, FieldMemOperand(kWasmInstanceRegister,
-                               WasmInstanceObject::kCEntryStubOffset));
+                               WasmInstanceObject::kIsolateRootOffset));
+    auto centry_id =
+        Builtins::kCEntry_Return1_DontSaveFPRegs_ArgvOnStack_NoBuiltinExit;
+    __ ldr(r2, MemOperand(r2, IsolateData::builtin_slot_offset(centry_id)));
     // Initialize the JavaScript context with 0. CEntry will use it to
     // set the current context on the isolate.
     __ Move(cp, Smi::zero());
@@ -3149,51 +3161,6 @@ void Builtins::Generate_MemCopyUint8Uint8(MacroAssembler* masm) {
   __ ldrb(temp1, MemOperand(src), ne);
   __ strb(temp1, MemOperand(dest), ne);
   __ Ret();
-}
-
-void Builtins::Generate_MemCopyUint16Uint8(MacroAssembler* masm) {
-  Register dest = r0;
-  Register src = r1;
-  Register chars = r2;
-
-  {
-    UseScratchRegisterScope temps(masm);
-
-    Register temp1 = r3;
-    Register temp2 = temps.Acquire();
-    Register temp3 = lr;
-    Register temp4 = r4;
-    Label loop;
-    Label not_two;
-
-    __ Push(lr, r4);
-    __ bic(temp2, chars, Operand(0x3));
-    __ add(temp2, dest, Operand(temp2, LSL, 1));
-
-    __ bind(&loop);
-    __ ldr(temp1, MemOperand(src, 4, PostIndex));
-    __ uxtb16(temp3, temp1);
-    __ uxtb16(temp4, temp1, 8);
-    __ pkhbt(temp1, temp3, Operand(temp4, LSL, 16));
-    __ str(temp1, MemOperand(dest));
-    __ pkhtb(temp1, temp4, Operand(temp3, ASR, 16));
-    __ str(temp1, MemOperand(dest, 4));
-    __ add(dest, dest, Operand(8));
-    __ cmp(dest, temp2);
-    __ b(&loop, ne);
-
-    __ mov(chars, Operand(chars, LSL, 31), SetCC);  // bit0 => ne, bit1 => cs
-    __ b(&not_two, cc);
-    __ ldrh(temp1, MemOperand(src, 2, PostIndex));
-    __ uxtb(temp3, temp1, 8);
-    __ mov(temp3, Operand(temp3, LSL, 16));
-    __ uxtab(temp3, temp3, temp1);
-    __ str(temp3, MemOperand(dest, 4, PostIndex));
-    __ bind(&not_two);
-    __ ldrb(temp1, MemOperand(src), ne);
-    __ strh(temp1, MemOperand(dest), ne);
-    __ Pop(pc, r4);
-  }
 }
 
 #undef __
